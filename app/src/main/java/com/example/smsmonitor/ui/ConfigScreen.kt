@@ -13,6 +13,12 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -20,8 +26,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -29,6 +40,8 @@ import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.HighlightOff
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Save
@@ -42,32 +55,43 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.platform.LocalDensity
 import androidx.core.content.ContextCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.Lifecycle
@@ -78,6 +102,7 @@ import com.example.smsmonitor.data.ConfigRepository
 import com.example.smsmonitor.data.PlaybackSourceMode
 import com.example.smsmonitor.data.RuleMatchMode
 import com.example.smsmonitor.data.SmsRule
+import com.example.smsmonitor.ui.theme.AppSuccess
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -213,8 +238,13 @@ fun ConfigScreen(
         EventLog.append(context, "Local playback source selected: $uri")
     }
     var selectedTab by remember { mutableIntStateOf(0) }
-    var showSystemDetails by remember { mutableStateOf(false) }
-    val tabs = listOf("概览", "匹配规则", "提醒设置", "运行日志")
+    val tabs = listOf("设置", "匹配规则", "提醒设置", "运行日志")
+    val tabIcons = listOf(
+        Icons.Filled.CheckCircle,
+        Icons.Filled.Alarm,
+        Icons.Filled.Timer,
+        Icons.Filled.Refresh
+    )
     var refreshTick by remember { mutableIntStateOf(0) }
     val eventLogText = remember(refreshTick) { EventLog.read(context) }
     LaunchedEffect(Unit) {
@@ -251,6 +281,9 @@ fun ConfigScreen(
             onRequestNotificationPermission()
         }
     }
+    LaunchedEffect(selectedTab) {
+        if (selectedTab == 3) refreshTick++
+    }
 
     fun scheduleNow() {
         EventLog.append(context, "UI clicked 立即响铃")
@@ -266,9 +299,9 @@ fun ConfigScreen(
 
     fun scheduleCustomPlayback() {
         val volume = playbackVolume.toIntOrNull()?.coerceIn(0, 100)
-        val duration = playbackDuration.toIntOrNull()?.coerceIn(1, 3600)
+        val duration = playbackDuration.toIntOrNull()?.coerceIn(1, 60)
         if (playbackSource.isBlank() || volume == null || duration == null) {
-            Toast.makeText(context, "请填写有效的音乐地址、音量(0-100)和时长(1-3600秒)", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "请填写有效的音乐地址、音量(0-100)和时长(1-60秒)", Toast.LENGTH_LONG).show()
             return
         }
         repo.playbackSource = playbackSource.trim()
@@ -287,15 +320,32 @@ fun ConfigScreen(
     }
 
     Scaffold(
-        topBar = {
-            Column {
-                TopAppBar(title = { Text("短信提醒助手") })
-                TabRow(selectedTabIndex = selectedTab) {
+        bottomBar = {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 20.dp, vertical = 10.dp),
+                shape = RoundedCornerShape(31.dp),
+                tonalElevation = 6.dp,
+                shadowElevation = 8.dp,
+                color = MaterialTheme.colorScheme.surface
+            ) {
+                NavigationBar(
+                    containerColor = androidx.compose.ui.graphics.Color.Transparent,
+                    tonalElevation = 0.dp
+                ) {
                     tabs.forEachIndexed { index, label ->
-                        Tab(
+                        NavigationBarItem(
                             selected = selectedTab == index,
                             onClick = { selectedTab = index },
-                            text = { Text(label) }
+                            icon = {
+                                Icon(
+                                    imageVector = tabIcons[index],
+                                    contentDescription = label
+                                )
+                            },
+                            label = { Text(label) }
                         )
                     }
                 }
@@ -306,22 +356,22 @@ fun ConfigScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(16.dp)
+                .statusBarsPadding()
+                .padding(horizontal = 20.dp, vertical = 8.dp)
                 .imePadding()
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             when (selectedTab) {
                 0 -> {
-                    val coreReadyCount = listOf(
-                        notificationPermissionGranted,
-                        fullScreenIntentGranted,
-                        exactAlarmGranted,
-                        vibrationGranted
-                    ).count { it }
-                    OverviewGrid(
+                    SettingsOverview(
                         monitoringEnabled = monitoringEnabled,
                         enabledRuleCount = rules.count { it.enabled },
+                        activeWindowEnabled = activeWindowEnabled,
+                        activeWindowStart = activeWindowStart,
+                        activeWindowEnd = activeWindowEnd,
+                        onOpenRules = { selectedTab = 1 },
+                        onOpenReminderSettings = { selectedTab = 2 },
                         onMonitoringChange = { value ->
                             if (value && !smsPermissionGranted) {
                                 Toast.makeText(context, "请先授予短信监听权限", Toast.LENGTH_SHORT).show()
@@ -347,44 +397,31 @@ fun ConfigScreen(
                                 Toast.makeText(context, "无法打开通知访问设置", Toast.LENGTH_LONG).show()
                             }
                         },
-                        coreReadyCount = coreReadyCount,
-                        corePermissionsReady = coreReadyCount == 4,
-                        onOpenSystemPermissions = { showSystemDetails = true }
-                    )
-                    if (showSystemDetails) {
-                        SystemAccessCard(
-                            notificationGranted = notificationPermissionGranted,
-                            fullScreenIntentGranted = fullScreenIntentGranted,
-                            exactAlarmGranted = exactAlarmGranted,
-                            batteryOptimizationIgnored = batteryOptimizationIgnored,
-                            vibrationGranted = vibrationGranted,
-                            onNotificationPermission = onRequestNotificationPermission,
-                            onFullScreenIntent = {
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                                    openSettings(context, Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
-                                        Uri.parse("package:${context.packageName}"))
-                                }
-                            },
-                            onExactAlarm = {
-                                openSettings(context, Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
-                                    Uri.parse("package:${context.packageName}"))
-                            },
-                            onBatteryOptimization = {
-                                openSettings(context, Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-                                    Uri.parse("package:${context.packageName}"))
-                            },
-                            onBackgroundSettings = {
-                                openSettings(context, Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        notificationPermissionGranted = notificationPermissionGranted,
+                        onRequestNotificationPermission = onRequestNotificationPermission,
+                        fullScreenIntentGranted = fullScreenIntentGranted,
+                        onFullScreenIntent = {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                                openSettings(context, Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
                                     Uri.parse("package:${context.packageName}"))
                             }
-                        )
-                        OutlinedButton(
-                            onClick = { showSystemDetails = false },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("收起系统权限详情")
+                        },
+                        exactAlarmGranted = exactAlarmGranted,
+                        onExactAlarm = {
+                            openSettings(context, Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+                                Uri.parse("package:${context.packageName}"))
+                        },
+                        batteryOptimizationIgnored = batteryOptimizationIgnored,
+                        onBatteryOptimization = {
+                            openSettings(context, Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                                Uri.parse("package:${context.packageName}"))
+                        },
+                        vibrationGranted = vibrationGranted,
+                        onBackgroundSettings = {
+                            openSettings(context, Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                Uri.parse("package:${context.packageName}"))
                         }
-                    }
+                    )
                 }
                 1 -> {
                     RuleManagementCard(
@@ -393,6 +430,29 @@ fun ConfigScreen(
                             rules = it
                             repo.rules = it
                             refreshTick++
+                        }
+                    )
+                    FilterOptionsCard(
+                        blacklist = blacklistSenders,
+                        onBlacklistChange = {
+                            blacklistSenders = it
+                            repo.blacklistSenders = it
+                        },
+                        ignoreCarrierVerification = ignoreCarrierVerification,
+                        onIgnoreCarrierChange = {
+                            ignoreCarrierVerification = it
+                            repo.ignoreCarrierVerification = it
+                        }
+                    )
+                }
+                2 -> {
+                    CustomPlaybackSwitchRow(
+                        enabled = customPlaybackOnMatch,
+                        sourceMode = playbackSourceMode,
+                        duration = playbackDuration,
+                        onEnabledChange = {
+                            customPlaybackOnMatch = it
+                            if (loaded) repo.customPlaybackOnMatch = it
                         }
                     )
                     TimeWindowCard(
@@ -412,20 +472,6 @@ fun ConfigScreen(
                             parseMinutes(value)?.let { repo.activeWindowEnd = it }
                         }
                     )
-                    FilterOptionsCard(
-                        blacklist = blacklistSenders,
-                        onBlacklistChange = {
-                            blacklistSenders = it
-                            repo.blacklistSenders = it
-                        },
-                        ignoreCarrierVerification = ignoreCarrierVerification,
-                        onIgnoreCarrierChange = {
-                            ignoreCarrierVerification = it
-                            repo.ignoreCarrierVerification = it
-                        }
-                    )
-                }
-                2 -> {
                     CustomPlaybackCard(
                         source = playbackSource,
                         sourceMode = playbackSourceMode,
@@ -456,11 +502,6 @@ fun ConfigScreen(
                             playbackVibrate = it
                             if (loaded) repo.playbackVibrate = it
                         },
-                        customOnMatch = customPlaybackOnMatch,
-                        onCustomOnMatchChange = {
-                            customPlaybackOnMatch = it
-                            if (loaded) repo.customPlaybackOnMatch = it
-                        },
                         onSchedule = ::scheduleCustomPlayback
                     )
                     Button(onClick = ::scheduleNow, modifier = Modifier.fillMaxWidth()) {
@@ -470,6 +511,7 @@ fun ConfigScreen(
                     }
                 }
                 else -> {
+                    InfoCard()
                     EventLogCard(
                         text = eventLogText,
                         onRefresh = { refreshTick++ },
@@ -486,7 +528,6 @@ fun ConfigScreen(
                             Toast.makeText(context, if (file != null) "日志已保存到 ${file.absolutePath}" else "保存失败", Toast.LENGTH_LONG).show()
                         }
                     )
-                    InfoCard()
                 }
             }
         }
@@ -494,224 +535,302 @@ fun ConfigScreen(
 }
 
 @Composable
-private fun OverviewGrid(
+private fun SettingsOverview(
     monitoringEnabled: Boolean,
     enabledRuleCount: Int,
+    activeWindowEnabled: Boolean,
+    activeWindowStart: String,
+    activeWindowEnd: String,
+    onOpenRules: () -> Unit,
+    onOpenReminderSettings: () -> Unit,
     onMonitoringChange: (Boolean) -> Unit,
     smsPermissionGranted: Boolean,
     onRequestSmsPermission: () -> Unit,
     notificationAccessGranted: Boolean,
     onOpenNotificationSettings: () -> Unit,
-    coreReadyCount: Int,
-    corePermissionsReady: Boolean,
-    onOpenSystemPermissions: () -> Unit
+    notificationPermissionGranted: Boolean,
+    onRequestNotificationPermission: () -> Unit,
+    fullScreenIntentGranted: Boolean,
+    onFullScreenIntent: () -> Unit,
+    exactAlarmGranted: Boolean,
+    onExactAlarm: () -> Unit,
+    batteryOptimizationIgnored: Boolean,
+    onBatteryOptimization: () -> Unit,
+    vibrationGranted: Boolean,
+    onBackgroundSettings: () -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(
+    val pendingCount = listOf(
+        !smsPermissionGranted,
+        !notificationAccessGranted,
+        !notificationPermissionGranted,
+        !fullScreenIntentGranted,
+        !exactAlarmGranted,
+        !batteryOptimizationIgnored,
+        !vibrationGranted
+    ).count { it }
+
+    Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
+        Card(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
         ) {
-            OverviewTile(
-                modifier = Modifier.weight(1f),
-                title = "监听状态",
-                summary = if (monitoringEnabled) "已启用 $enabledRuleCount 条规则" else "已暂停自动提醒",
-                icon = if (monitoringEnabled) Icons.Filled.CheckCircle else Icons.Filled.HighlightOff,
-                active = monitoringEnabled
+            Row(
+                modifier = Modifier.padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
+                Surface(
+                    modifier = Modifier.size(40.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Alarm,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(10.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "短信提醒总开关",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        if (monitoringEnabled) {
+                            "关闭后不再推送任何提醒，规则仍然保留"
+                        } else {
+                            "当前已关闭提醒，开启后按规则监听新短信"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(checked = monitoringEnabled, onCheckedChange = onMonitoringChange)
+            }
+        }
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        ) {
+            Column {
+                OverviewSettingRow(
+                    icon = Icons.Filled.CheckCircle,
+                    label = "启用规则",
+                    value = "$enabledRuleCount 条规则",
+                    tint = MaterialTheme.colorScheme.primary,
+                    onClick = onOpenRules
+                )
+                OverviewSettingRow(
+                    icon = Icons.Filled.Schedule,
+                    label = "免打扰时段",
+                    value = if (activeWindowEnabled) "$activeWindowStart - $activeWindowEnd" else "未启用",
+                    tint = if (activeWindowEnabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                    onClick = onOpenReminderSettings
+                )
+            }
+        }
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text("自动监听", style = MaterialTheme.typography.labelLarge)
-                    Switch(checked = monitoringEnabled, onCheckedChange = onMonitoringChange)
+                    Text(
+                        "通知状态诊断",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (pendingCount == 0) MaterialTheme.colorScheme.surfaceVariant
+                        else MaterialTheme.colorScheme.tertiary.copy(alpha = 0.16f)
+                    ) {
+                        Text(
+                            if (pendingCount == 0) "状态正常" else "$pendingCount 项待处理",
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = if (pendingCount == 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary
+                        )
+                    }
                 }
-            }
-            OverviewTile(
-                modifier = Modifier.weight(1f),
-                title = "短信权限",
-                summary = if (smsPermissionGranted) "可以接收新短信" else "需要授权后才能监听",
-                icon = if (smsPermissionGranted) Icons.Filled.CheckCircle else Icons.Filled.HighlightOff,
-                active = smsPermissionGranted
-            ) {
-                if (!smsPermissionGranted) {
-                    OutlinedButton(
-                        onClick = onRequestSmsPermission,
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text("去授权") }
-                } else {
-                    Text("已准备就绪", style = MaterialTheme.typography.labelLarge)
+                OverviewDiagnosticRow("短信权限", smsPermissionGranted, "去授权", onRequestSmsPermission)
+                OverviewDiagnosticRow("通知访问", notificationAccessGranted, "去设置", onOpenNotificationSettings)
+                OverviewDiagnosticRow("通知权限", notificationPermissionGranted, "去设置", onRequestNotificationPermission)
+                OverviewDiagnosticRow("全屏提醒", fullScreenIntentGranted, "去设置", onFullScreenIntent)
+                OverviewDiagnosticRow("精确闹钟", exactAlarmGranted, "去设置", onExactAlarm)
+                OverviewDiagnosticRow("电池优化豁免", batteryOptimizationIgnored, "去设置", onBatteryOptimization)
+                OverviewDiagnosticRow("振动权限", vibrationGranted, "去设置", onBackgroundSettings)
+                if (pendingCount > 0) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.10f)
+                    ) {
+                        Text(
+                            "后台运行受限时，提醒可能延迟 1-2 分钟送达。",
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
-            }
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            OverviewTile(
-                modifier = Modifier.weight(1f),
-                title = "备用通道",
-                summary = if (notificationAccessGranted) "短信通知监听已开启" else "建议开启，提升到达率",
-                icon = Icons.Filled.Schedule,
-                active = notificationAccessGranted
-            ) {
-                OutlinedButton(
-                    onClick = onOpenNotificationSettings,
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text(if (notificationAccessGranted) "管理设置" else "去开启") }
-            }
-            OverviewTile(
-                modifier = Modifier.weight(1f),
-                title = "系统权限",
-                summary = "$coreReadyCount / 4 项核心权限已就绪",
-                icon = Icons.Filled.Alarm,
-                active = corePermissionsReady,
-                warning = !corePermissionsReady
-            ) {
-                OutlinedButton(
-                    onClick = onOpenSystemPermissions,
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text("查看详情") }
             }
         }
     }
 }
 
 @Composable
-private fun OverviewTile(
-    modifier: Modifier,
+private fun OverviewSettingRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    value: String,
+    tint: androidx.compose.ui.graphics.Color,
+    onClick: (() -> Unit)? = null
+) {
+    val clickModifier = onClick?.let { callback -> Modifier.clickable(onClick = callback) } ?: Modifier
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(clickModifier)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Surface(
+            modifier = Modifier.size(32.dp),
+            shape = RoundedCornerShape(10.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant
+        ) {
+            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.padding(8.dp))
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+        Text(value, style = MaterialTheme.typography.labelLarge, color = tint)
+    }
+}
+
+@Composable
+private fun OverviewDiagnosticRow(
+    label: String,
+    granted: Boolean,
+    actionLabel: String,
+    onAction: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            "•",
+            color = if (granted) AppSuccess else MaterialTheme.colorScheme.tertiary,
+            style = MaterialTheme.typography.titleMedium
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(label, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+        if (granted) {
+            Text("正常", style = MaterialTheme.typography.labelMedium, color = AppSuccess)
+        } else {
+            TextButton(
+                onClick = onAction,
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+                modifier = Modifier.height(30.dp)
+            ) {
+                Text(actionLabel, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.tertiary)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsStatusCard(
     title: String,
     summary: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
-    active: Boolean,
-    warning: Boolean = false,
-    content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit
+    ready: Boolean,
+    warningText: String,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null,
+    content: (@Composable () -> Unit)? = null
 ) {
     Card(
-        modifier = modifier.height(178.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (active) {
-                MaterialTheme.colorScheme.primaryContainer
-            } else {
-                MaterialTheme.colorScheme.surfaceVariant
-            }
-        )
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.Top
             ) {
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
-                    tint = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    tint = if (ready) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.error
+                    }
                 )
-                if (warning) {
-                    Icon(
-                        imageVector = Icons.Filled.Warning,
-                        contentDescription = "有权限未开启",
-                        tint = androidx.compose.ui.graphics.Color(0xFFD32F2F)
+                Spacer(modifier = Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        summary,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-            }
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Text(
-                summary,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2
-            )
-            Spacer(modifier = Modifier.weight(1f))
-            content()
-        }
-    }
-}
-
-@Composable
-private fun ListenerSwitchCard(
-    enabled: Boolean,
-    onChange: (Boolean) -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = if (enabled) {
-                MaterialTheme.colorScheme.primaryContainer
-            } else {
-                MaterialTheme.colorScheme.surfaceVariant
-            }
-        )
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text("短信自动提醒", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(
-                    if (enabled) "正在监测新短信并按规则提醒" else "已暂停监测，历史短信不会被扫描",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    if (ready) "已开启" else "需处理",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (ready) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.error
+                    }
                 )
             }
-            Switch(checked = enabled, onCheckedChange = onChange)
-        }
-    }
-}
-
-@Composable
-private fun SystemAccessCard(
-    notificationGranted: Boolean,
-    fullScreenIntentGranted: Boolean,
-    exactAlarmGranted: Boolean,
-    batteryOptimizationIgnored: Boolean,
-    vibrationGranted: Boolean,
-    onNotificationPermission: () -> Unit,
-    onFullScreenIntent: () -> Unit,
-    onExactAlarm: () -> Unit,
-    onBatteryOptimization: () -> Unit,
-    onBackgroundSettings: () -> Unit
-) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("核心提醒权限与后台运行", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            PermissionRow("通知权限", notificationGranted, onNotificationPermission)
-            PermissionRow("全屏提醒", fullScreenIntentGranted, onFullScreenIntent)
-            PermissionRow("闹钟提醒权限", exactAlarmGranted, onExactAlarm)
-            PermissionRow("电池优化豁免", batteryOptimizationIgnored, onBatteryOptimization)
-            PermissionRow("振动权限", vibrationGranted, null)
-            OutlinedButton(onClick = onBackgroundSettings, modifier = Modifier.fillMaxWidth()) {
-                Text("打开应用后台设置")
+            if (!ready) {
+                Text(
+                    warningText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
             }
-            Text(
-                "建议开启自启动、允许后台运行，并将电池策略设为不限制，否则系统清理后台后可能无法提醒。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
-}
-
-@Composable
-private fun PermissionRow(label: String, granted: Boolean, onRequest: (() -> Unit)?) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Text(if (granted) "✓ $label" else "✗ $label", style = MaterialTheme.typography.bodyMedium)
-        if (!granted && onRequest != null) {
-            OutlinedButton(onClick = onRequest) { Text("去开启") }
+            content?.invoke()
+            if (!ready && actionLabel != null && onAction != null) {
+                OutlinedButton(
+                    onClick = onAction,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(actionLabel)
+                }
+            }
         }
     }
 }
@@ -723,6 +842,11 @@ private fun RuleManagementCard(
 ) {
     val context = LocalContext.current
     var editingId by remember { mutableStateOf<String?>(null) }
+    var rulesExpanded by remember { mutableStateOf(true) }
+    val rulesRotation by animateFloatAsState(
+        targetValue = if (rulesExpanded) 180f else 0f,
+        label = "rulesExpand"
+    )
     var name by remember { mutableStateOf("") }
     var senders by remember { mutableStateOf("") }
     var keywords by remember { mutableStateOf("") }
@@ -766,121 +890,248 @@ private fun RuleManagementCard(
         editingId = null
     }
 
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("匹配规则", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                    Text("每条规则独立启用，可按任一条件或全部条件匹配", style = MaterialTheme.typography.bodySmall)
+                    Text("匹配规则", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                    Text(
+                        "每条规则独立启用，可按任一条件或全部条件匹配",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
-                OutlinedButton(onClick = ::resetEditor) { Text("新增规则") }
+                Button(onClick = ::resetEditor) { Text("新增规则") }
+                IconButton(onClick = { rulesExpanded = !rulesExpanded }) {
+                    Icon(
+                        imageVector = Icons.Filled.ExpandMore,
+                        contentDescription = if (rulesExpanded) "收起规则列表" else "展开规则列表",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.rotate(rulesRotation)
+                    )
+                }
             }
 
-            rules.forEach { rule ->
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(rule.name, fontWeight = FontWeight.SemiBold)
-                            Text(
-                                "号码: ${rule.senders.ifBlank { "不限" }} · 关键词: ${rule.keywords.ifBlank { "不限" }} · " +
-                                    if (rule.mode == RuleMatchMode.ANY) "任一命中" else "全部命中",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Switch(
-                            checked = rule.enabled,
-                            onCheckedChange = { value ->
+            if (rulesExpanded) {
+                if (rules.isEmpty()) {
+                    Text(
+                        "暂无规则，点击右上角新增规则",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 12.dp)
+                    )
+                } else {
+                    rules.forEach { rule ->
+                        RuleListItem(
+                            rule = rule,
+                            onToggle = { value ->
                                 onRulesChanged(rules.map { if (it.id == rule.id) it.copy(enabled = value) else it })
+                            },
+                            onEdit = { edit(rule) },
+                            onDelete = {
+                                onRulesChanged(rules.filterNot { it.id == rule.id })
+                                if (editingId == rule.id) editingId = null
                             }
                         )
                     }
+                }
+            }
+        }
+    }
+
+    if (editingId != null) {
+        AlertDialog(
+            onDismissRequest = { editingId = null },
+            title = { Text(if (editingId == "new") "新增匹配规则" else "编辑匹配规则") },
+            text = {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        label = { Text("规则名称") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = senders,
+                        onValueChange = { senders = it },
+                        label = { Text("目标号码") },
+                        placeholder = { Text("多个号码用逗号分隔") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = keywords,
+                        onValueChange = { keywords = it },
+                        label = { Text("关键词") },
+                        placeholder = { Text("多个关键词用逗号分隔") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         OutlinedButton(
-                            onClick = { edit(rule) },
+                            onClick = { mode = RuleMatchMode.ANY },
                             modifier = Modifier.weight(1f)
-                        ) { Text("编辑") }
+                        ) {
+                            Text(if (mode == RuleMatchMode.ANY) "✓ 任一命中" else "任一命中")
+                        }
                         OutlinedButton(
-                            onClick = {
-                                onRulesChanged(rules.filterNot { it.id == rule.id })
-                                if (editingId == rule.id) editingId = null
-                            },
+                            onClick = { mode = RuleMatchMode.ALL },
                             modifier = Modifier.weight(1f)
-                        ) { Text("删除") }
+                        ) {
+                            Text(if (mode == RuleMatchMode.ALL) "✓ 全部命中" else "全部命中")
+                        }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("启用此规则", style = MaterialTheme.typography.bodyMedium)
+                        Switch(checked = enabled, onCheckedChange = { enabled = it })
                     }
                 }
-            }
+            },
+            confirmButton = { Button(onClick = ::save) { Text("保存") } },
+            dismissButton = { TextButton(onClick = { editingId = null }) { Text("取消") } }
+        )
+    }
+}
 
-            if (editingId != null) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    if (editingId == "new") "新建规则" else "编辑规则",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold
-                )
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("规则名称") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = senders,
-                    onValueChange = { senders = it },
-                    label = { Text("目标号码") },
-                    placeholder = { Text("多个号码用逗号分隔") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = keywords,
-                    onValueChange = { keywords = it },
-                    label = { Text("关键词") },
-                    placeholder = { Text("多个关键词用逗号分隔") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedButton(
-                        onClick = { mode = RuleMatchMode.ANY },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text(if (mode == RuleMatchMode.ANY) "✓ 任一命中" else "任一命中")
-                    }
-                    OutlinedButton(
-                        onClick = { mode = RuleMatchMode.ALL },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text(if (mode == RuleMatchMode.ALL) "✓ 全部命中" else "全部命中")
-                    }
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text("启用此规则")
-                    Switch(checked = enabled, onCheckedChange = { enabled = it })
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = ::save) { Text("保存规则") }
-                    OutlinedButton(onClick = { editingId = null }) { Text("取消") }
-                }
+@Composable
+private fun RuleListItem(
+    rule: SmsRule,
+    onToggle: (Boolean) -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
+) {
+    var offsetX by remember { mutableStateOf(0f) }
+    val density = LocalDensity.current
+    val revealDistance = with(density) { 92.dp.toPx() }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(IntrinsicSize.Min)
+            .clip(RoundedCornerShape(12.dp))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.error.copy(alpha = 0.82f))
+                .padding(end = 14.dp),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            TextButton(onClick = onDelete) {
+                Text("删除", color = androidx.compose.ui.graphics.Color.White)
             }
+        }
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .offset { IntOffset(offsetX.roundToInt(), 0) }
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures(
+                        onHorizontalDrag = { change, dragAmount ->
+                            change.consume()
+                            offsetX = (offsetX + dragAmount).coerceIn(-revealDistance, 0f)
+                        },
+                        onDragEnd = {
+                            offsetX = if (offsetX < -revealDistance * 0.45f) -revealDistance else 0f
+                        }
+                    )
+                },
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 11.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(rule.name, style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "号码: ${rule.senders.ifBlank { "不限" }} · 关键词: ${rule.keywords.ifBlank { "不限" }} · " +
+                            if (rule.mode == RuleMatchMode.ANY) "任一命中" else "全部命中",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    TextButton(
+                        onClick = onEdit,
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+                        modifier = Modifier.height(28.dp)
+                    ) {
+                        Text("编辑", style = MaterialTheme.typography.labelMedium)
+                    }
+                }
+                Switch(checked = rule.enabled, onCheckedChange = onToggle)
+            }
+        }
+    }
+}
+
+@Composable
+private fun CustomPlaybackSwitchRow(
+    enabled: Boolean,
+    sourceMode: PlaybackSourceMode,
+    duration: String,
+    onEnabledChange: (Boolean) -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                modifier = Modifier.size(40.dp),
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Schedule,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(10.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text("短信匹配后使用自定义播放", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    if (enabled) {
+                        "已启用 · ${if (sourceMode == PlaybackSourceMode.LOCAL) "本地音频" else "线上音频"} · " +
+                            formatDurationLabel(duration.toIntOrNull()?.coerceIn(1, 60) ?: 35)
+                    } else {
+                        "未启用 · 匹配成功后继续写入系统闹钟"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (enabled) AppSuccess else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(checked = enabled, onCheckedChange = onEnabledChange)
         }
     }
 }
@@ -894,7 +1145,13 @@ private fun TimeWindowCard(
     onStartChange: (String) -> Unit,
     onEndChange: (String) -> Unit
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -902,7 +1159,7 @@ private fun TimeWindowCard(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("提醒时间段", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text("提醒时间段", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
                     Text("仅在指定时间段内匹配并提醒，支持跨午夜时段", style = MaterialTheme.typography.bodySmall)
                 }
                 Switch(checked = enabled, onCheckedChange = onEnabledChange)
@@ -936,9 +1193,15 @@ private fun FilterOptionsCard(
     ignoreCarrierVerification: Boolean,
     onIgnoreCarrierChange: (Boolean) -> Unit
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("过滤选项", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text("过滤选项", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
             OutlinedTextField(
                 value = blacklist,
                 onValueChange = onBlacklistChange,
@@ -990,6 +1253,7 @@ private fun openSettings(context: android.content.Context, action: String, data:
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PlaybackSettingSlider(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
@@ -1002,11 +1266,19 @@ private fun PlaybackSettingSlider(
     minLabel: String,
     maxLabel: String
 ) {
+    val sliderColors = SliderDefaults.colors(
+        thumbColor = MaterialTheme.colorScheme.primary,
+        activeTrackColor = MaterialTheme.colorScheme.primary,
+        inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant,
+        activeTickColor = MaterialTheme.colorScheme.primary,
+        inactiveTickColor = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+    val interactionSource = remember { MutableInteractionSource() }
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 4.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp)
+            .padding(top = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1025,7 +1297,7 @@ private fun PlaybackSettingSlider(
             Text(
                 valueLabel,
                 style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
+                fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.primary
             )
         }
@@ -1034,14 +1306,25 @@ private fun PlaybackSettingSlider(
             onValueChange = onValueChange,
             valueRange = valueRange,
             steps = steps,
-            colors = SliderDefaults.colors(
-                thumbColor = MaterialTheme.colorScheme.primary,
-                activeTrackColor = MaterialTheme.colorScheme.primary,
-                inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant,
-                activeTickColor = MaterialTheme.colorScheme.onPrimary,
-                inactiveTickColor = MaterialTheme.colorScheme.onSurfaceVariant
-            ),
-            modifier = Modifier.fillMaxWidth()
+            colors = sliderColors,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(30.dp)
+                .padding(horizontal = 2.dp),
+            thumb = {
+                SliderDefaults.Thumb(
+                    interactionSource = interactionSource,
+                    colors = sliderColors,
+                    thumbSize = DpSize(18.dp, 18.dp)
+                )
+            },
+            track = { sliderState ->
+                SliderDefaults.Track(
+                    sliderState = sliderState,
+                    colors = sliderColors,
+                    modifier = Modifier.height(4.dp)
+                )
+            }
         )
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1054,7 +1337,7 @@ private fun PlaybackSettingSlider(
 }
 
 private fun formatDurationLabel(seconds: Int): String = when {
-    seconds >= 60 -> "${seconds / 60}分${seconds % 60}秒"
+    seconds > 60 -> "${seconds / 60}分${seconds % 60}秒"
     else -> "$seconds 秒"
 }
 
@@ -1071,125 +1354,136 @@ private fun CustomPlaybackCard(
     onDurationChange: (String) -> Unit,
     vibrate: Boolean,
     onVibrateChange: (Boolean) -> Unit,
-    customOnMatch: Boolean,
-    onCustomOnMatchChange: (Boolean) -> Unit,
     onSchedule: () -> Unit
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    var showCustomConfig by remember { mutableStateOf(false) }
+    val expandRotation by animateFloatAsState(
+        targetValue = if (showCustomConfig) 180f else 0f,
+        label = "customPlaybackExpand"
+    )
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text(
-                text = "自定义闹钟播放",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold
-            )
-            Text(
-                text = "使用系统精确定时，到点由本应用播放音乐，不写入系统闹钟 App。",
-                style = MaterialTheme.typography.bodySmall
-            )
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { showCustomConfig = !showCustomConfig },
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("音频来源", style = MaterialTheme.typography.bodyLarge)
                     Text(
-                        if (sourceMode == PlaybackSourceMode.LOCAL) "本地音频文件" else "线上音频地址",
+                        text = "自定义播放配置",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "使用系统精确定时，到点由本应用播放音乐",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                Switch(
-                    checked = sourceMode == PlaybackSourceMode.ONLINE,
-                    onCheckedChange = {
-                        onSourceModeChange(if (it) PlaybackSourceMode.ONLINE else PlaybackSourceMode.LOCAL)
-                    }
+                Icon(
+                    imageVector = Icons.Filled.ExpandMore,
+                    contentDescription = if (showCustomConfig) "收起自定义播放配置" else "展开自定义播放配置",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.rotate(expandRotation)
                 )
             }
-            if (sourceMode == PlaybackSourceMode.ONLINE) {
-                OutlinedTextField(
-                    value = source,
-                    onValueChange = onSourceChange,
-                    label = { Text("线上音频地址") },
-                    placeholder = { Text("http(s):// 音频地址") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+            if (showCustomConfig) {
+                TabRow(
+                    selectedTabIndex = if (sourceMode == PlaybackSourceMode.LOCAL) 0 else 1,
+                    containerColor = androidx.compose.ui.graphics.Color.Transparent,
+                    contentColor = MaterialTheme.colorScheme.primary
+                ) {
+                    Tab(
+                        selected = sourceMode == PlaybackSourceMode.LOCAL,
+                        onClick = { onSourceModeChange(PlaybackSourceMode.LOCAL) },
+                        text = { Text("本地音频", style = MaterialTheme.typography.labelLarge) }
+                    )
+                    Tab(
+                        selected = sourceMode == PlaybackSourceMode.ONLINE,
+                        onClick = { onSourceModeChange(PlaybackSourceMode.ONLINE) },
+                        text = { Text("线上音频", style = MaterialTheme.typography.labelLarge) }
+                    )
+                }
+                if (sourceMode == PlaybackSourceMode.ONLINE) {
+                    OutlinedTextField(
+                        value = source,
+                        onValueChange = onSourceChange,
+                        label = { Text("线上音频地址") },
+                        placeholder = { Text("http(s):// 音频地址") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                } else {
+                    OutlinedTextField(
+                        value = source,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("本地音频路径") },
+                        supportingText = { Text("默认使用内置提醒音，也可以选择手机中的音乐文件") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        trailingIcon = {
+                            androidx.compose.material3.IconButton(onClick = onPickLocalSource) {
+                                Icon(
+                                    imageVector = Icons.Filled.FolderOpen,
+                                    contentDescription = "选择本地音频",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    )
+                }
+                PlaybackSettingSlider(
+                    icon = Icons.Filled.VolumeUp,
+                    title = "系统闹钟音量",
+                    valueLabel = "${volume.toIntOrNull()?.coerceIn(0, 100) ?: 10}%",
+                    value = volume.toFloatOrNull()?.coerceIn(0f, 100f) ?: 10f,
+                    valueRange = 0f..100f,
+                    steps = 99,
+                    onValueChange = { onVolumeChange(it.roundToInt().toString()) },
+                    minLabel = "静音",
+                    maxLabel = "最大"
                 )
-            } else {
-                OutlinedTextField(
-                    value = source,
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text("本地音频路径") },
-                    supportingText = { Text("默认使用内置提醒音，也可以选择手机中的音乐文件") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                PlaybackSettingSlider(
+                    icon = Icons.Filled.Timer,
+                    title = "播放时长",
+                    valueLabel = formatDurationLabel(duration.toIntOrNull()?.coerceIn(1, 60) ?: 35),
+                    value = duration.toFloatOrNull()?.coerceIn(1f, 60f) ?: 35f,
+                    valueRange = 1f..60f,
+                    steps = 58,
+                    onValueChange = {
+                        val seconds = it.roundToInt().coerceIn(1, 60)
+                        onDurationChange(seconds.toString())
+                    },
+                    minLabel = "1 秒",
+                    maxLabel = "60 秒"
                 )
-                OutlinedButton(
-                    onClick = onPickLocalSource,
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("播放时振动", style = MaterialTheme.typography.bodyLarge)
+                    Switch(checked = vibrate, onCheckedChange = onVibrateChange)
+                }
+                Button(
+                    onClick = onSchedule,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("选择本地音乐文件")
+                    Icon(Icons.Filled.Schedule, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("5 秒后自定义闹钟播放")
                 }
-            }
-            PlaybackSettingSlider(
-                icon = Icons.Filled.VolumeUp,
-                title = "系统闹钟音量",
-                valueLabel = "${volume.toIntOrNull()?.coerceIn(0, 100) ?: 10}%",
-                value = volume.toFloatOrNull()?.coerceIn(0f, 100f) ?: 10f,
-                valueRange = 0f..100f,
-                steps = 99,
-                onValueChange = { onVolumeChange(it.roundToInt().toString()) },
-                minLabel = "静音",
-                maxLabel = "最大"
-            )
-            PlaybackSettingSlider(
-                icon = Icons.Filled.Timer,
-                title = "播放时长",
-                valueLabel = formatDurationLabel(duration.toIntOrNull()?.coerceIn(1, 3600) ?: 30),
-                value = duration.toFloatOrNull()?.coerceIn(1f, 3600f) ?: 30f,
-                valueRange = 1f..3600f,
-                steps = 359,
-                onValueChange = {
-                    val seconds = (it.roundToInt() / 10 * 10).coerceIn(1, 3600)
-                    onDurationChange(seconds.toString())
-                },
-                minLabel = "1 秒",
-                maxLabel = "60 分钟"
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("短信匹配后使用自定义播放", style = MaterialTheme.typography.bodyLarge)
-                    Text(
-                        if (customOnMatch) "匹配成功后走应用播放服务" else "匹配成功后继续写入系统闹钟",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Switch(checked = customOnMatch, onCheckedChange = onCustomOnMatchChange)
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text("播放时振动", style = MaterialTheme.typography.bodyLarge)
-                Switch(checked = vibrate, onCheckedChange = onVibrateChange)
-            }
-            Button(
-                onClick = onSchedule,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(Icons.Filled.Schedule, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("5 秒后自定义闹钟播放")
             }
         }
     }
@@ -1203,68 +1497,69 @@ private fun EventLogCard(
     onCopy: () -> Unit,
     onSave: () -> Unit
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = "运行日志（最近 50 条，最新在上）",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold
-            )
-            Spacer(modifier = Modifier.height(8.dp))
+    var detailsExpanded by remember { mutableStateOf(false) }
+    val expandRotation by animateFloatAsState(
+        targetValue = if (detailsExpanded) 180f else 0f,
+        label = "eventLogExpand"
+    )
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                OutlinedButton(
-                    onClick = onRefresh,
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.width(14.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("刷新")
-                }
-                OutlinedButton(
-                    onClick = onCopy,
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.width(14.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("复制")
-                }
-                OutlinedButton(
-                    onClick = onSave,
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(Icons.Filled.Save, contentDescription = null, modifier = Modifier.width(14.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("保存")
-                }
-            }
-            Spacer(modifier = Modifier.height(6.dp))
-            OutlinedButton(
-                onClick = onClear,
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.width(14.dp))
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("清空日志")
-            }
-            Spacer(modifier = Modifier.height(10.dp))
-            if (text.isBlank()) {
                 Text(
-                    text = "(暂无日志,点上面按钮试试)",
-                    style = MaterialTheme.typography.bodySmall
+                    text = "运行日志",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(onClick = { detailsExpanded = !detailsExpanded }) {
+                    Icon(
+                        Icons.Filled.ExpandMore,
+                        contentDescription = if (detailsExpanded) "收起日志详情" else "展开日志详情",
+                        modifier = Modifier.rotate(expandRotation)
+                    )
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onRefresh) {
+                    Icon(Icons.Filled.Refresh, contentDescription = "刷新日志")
+                }
+                IconButton(onClick = onCopy) {
+                    Icon(Icons.Filled.ContentCopy, contentDescription = "复制日志")
+                }
+                IconButton(onClick = onSave) {
+                    Icon(Icons.Filled.Save, contentDescription = "保存日志")
+                }
+                IconButton(onClick = onClear) {
+                    Icon(Icons.Filled.Delete, contentDescription = "清空日志")
+                }
+            }
+            if (detailsExpanded) {
+                Text(
+                    text = text.ifBlank { "暂无日志" },
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             } else {
                 Text(
-                    text = text,
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        fontFamily = FontFamily.Monospace
-                    )
+                    text = if (text.isBlank()) "暂无日志" else "最近 50 条，最新记录在上 · 点击箭头查看详情",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
@@ -1304,7 +1599,18 @@ private fun StatusCard(enabled: Boolean, rules: List<SmsRule>) {
 @Composable
 private fun InfoCard() {
     var showFeatureGuide by remember { mutableStateOf(false) }
-    Card(modifier = Modifier.fillMaxWidth()) {
+    var detailsExpanded by remember { mutableStateOf(false) }
+    val expandRotation by animateFloatAsState(
+        targetValue = if (detailsExpanded) 180f else 0f,
+        label = "infoExpand"
+    )
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1314,32 +1620,45 @@ private fun InfoCard() {
                 Text(
                     text = "使用说明与限制",
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { detailsExpanded = !detailsExpanded }
                 )
-                OutlinedButton(onClick = { showFeatureGuide = true }) {
+                TextButton(onClick = { showFeatureGuide = true }) {
                     Text("功能介绍")
                 }
+                IconButton(onClick = { detailsExpanded = !detailsExpanded }) {
+                    Icon(
+                        imageVector = Icons.Filled.ExpandMore,
+                        contentDescription = if (detailsExpanded) "收起使用说明" else "展开使用说明",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.rotate(expandRotation)
+                    )
+                }
             }
-            Spacer(modifier = Modifier.height(8.dp))
-            BulletLine("规则支持多个号码和关键词,每条规则可选择任一或全部命中")
-            BulletLine("号码自动去除 +86 / 空格 / - 等符号后再匹配")
-            BulletLine("启用时间段后,仅在指定时段内进行匹配提醒")
-            BulletLine("短信广播和短信通知是两条独立监听通道")
-            BulletLine("自定义播放按设置临时调整系统闹钟音量,提醒结束后恢复原音量")
-            BulletLine("锁屏/全屏提醒依赖系统通知、全屏提醒和电池策略权限")
-            BulletLine("本应用仅处理当前手机收到的新短信,不会扫描历史短信")
-            BulletLine("短信内容和手机号仅保存在本机,不会上传服务器")
-            Spacer(modifier = Modifier.height(12.dp))
-            Text(
-                text = "vivo 后台白名单 (收不到短信时检查)",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            BulletLine("i 管家 → 应用管理 → 短信提醒助手 → 自启动 → 开")
-            BulletLine("i 管家 → 应用管理 → 短信提醒助手 → 后台高耗电 → 允许")
-            BulletLine("设置 → 应用 → 短信提醒助手 → 通知 → 允许通知")
-            BulletLine("设置 → 电池 → 后台耗电管理 → 短信提醒助手 → 无限制")
+            if (detailsExpanded) {
+                Spacer(modifier = Modifier.height(8.dp))
+                BulletLine("规则支持多个号码和关键词,每条规则可选择任一或全部命中")
+                BulletLine("号码自动去除 +86 / 空格 / - 等符号后再匹配")
+                BulletLine("启用时间段后,仅在指定时段内进行匹配提醒")
+                BulletLine("短信广播和短信通知是两条独立监听通道")
+                BulletLine("自定义播放按设置临时调整系统闹钟音量,提醒结束后恢复原音量")
+                BulletLine("锁屏/全屏提醒依赖系统通知、全屏提醒和电池策略权限")
+                BulletLine("本应用仅处理当前手机收到的新短信,不会扫描历史短信")
+                BulletLine("短信内容和手机号仅保存在本机,不会上传服务器")
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "vivo 后台白名单 (收不到短信时检查)",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                BulletLine("i 管家 → 应用管理 → 短信提醒助手 → 自启动 → 开")
+                BulletLine("i 管家 → 应用管理 → 短信提醒助手 → 后台高耗电 → 允许")
+                BulletLine("设置 → 应用 → 短信提醒助手 → 通知 → 允许通知")
+                BulletLine("设置 → 电池 → 后台耗电管理 → 短信提醒助手 → 无限制")
+            }
         }
     }
     if (showFeatureGuide) {

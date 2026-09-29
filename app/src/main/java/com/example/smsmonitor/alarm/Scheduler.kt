@@ -64,7 +64,7 @@ object Scheduler {
             action = AlarmFiredReceiver.CUSTOM_ACTION
             putExtra(AlarmFiredReceiver.EXTRA_SOURCE, source)
             putExtra(AlarmFiredReceiver.EXTRA_VOLUME, volumePercent.coerceIn(0, 100))
-            putExtra(AlarmFiredReceiver.EXTRA_DURATION, durationSeconds.coerceIn(1, 3600))
+            putExtra(AlarmFiredReceiver.EXTRA_DURATION, durationSeconds.coerceIn(1, 60))
             putExtra(AlarmFiredReceiver.EXTRA_VIBRATE, vibrate)
             putExtra(AlarmFiredReceiver.EXTRA_SENDER, sender)
             putExtra(AlarmFiredReceiver.EXTRA_BODY, body)
@@ -80,7 +80,7 @@ object Scheduler {
             EventLog.append(
                 context,
                 "Custom playback: setAlarmClock +${delaySeconds}s armed " +
-                    "volume=${volumePercent.coerceIn(0, 100)}% duration=${durationSeconds.coerceIn(1, 3600)}s vibrate=$vibrate"
+                    "volume=${volumePercent.coerceIn(0, 100)}% duration=${durationSeconds.coerceIn(1, 60)}s vibrate=$vibrate"
             )
             Toast.makeText(context, "自定义闹钟已设置, ${delaySeconds} 秒后播放", Toast.LENGTH_SHORT).show()
         } catch (t: Throwable) {

@@ -32,7 +32,7 @@ class AlarmPlaybackService : Service() {
     private var vibrator: Vibrator? = null
     private var source: String = ""
     private var volumePercent: Int = 10
-    private var durationSeconds: Int = 30
+    private var durationSeconds: Int = 35
     private var shouldVibrate: Boolean = true
     private var sender: String = ""
     private var body: String = ""
@@ -85,7 +85,7 @@ class AlarmPlaybackService : Service() {
             volumePercent = intent.getIntExtra(EXTRA_VOLUME, 10).coerceIn(0, 100)
         }
         if (intent.hasExtra(EXTRA_DURATION)) {
-            durationSeconds = intent.getIntExtra(EXTRA_DURATION, 30).coerceIn(1, 3600)
+            durationSeconds = intent.getIntExtra(EXTRA_DURATION, 35).coerceIn(1, 60)
         }
         if (intent.hasExtra(EXTRA_VIBRATE)) shouldVibrate = intent.getBooleanExtra(EXTRA_VIBRATE, true)
         if (intent.hasExtra(EXTRA_SENDER)) sender = intent.getStringExtra(EXTRA_SENDER).orEmpty()

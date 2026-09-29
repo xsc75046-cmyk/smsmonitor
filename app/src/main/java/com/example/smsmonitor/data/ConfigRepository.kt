@@ -90,8 +90,8 @@ class ConfigRepository(context: Context) {
         set(value) = prefs.edit().putInt(KEY_PLAYBACK_VOLUME, value.coerceIn(0, 100)).apply()
 
     var playbackDurationSeconds: Int
-        get() = prefs.getInt(KEY_PLAYBACK_DURATION, 30).coerceIn(1, 3600)
-        set(value) = prefs.edit().putInt(KEY_PLAYBACK_DURATION, value.coerceIn(1, 3600)).apply()
+        get() = prefs.getInt(KEY_PLAYBACK_DURATION, 35).coerceIn(1, 60)
+        set(value) = prefs.edit().putInt(KEY_PLAYBACK_DURATION, value.coerceIn(1, 60)).apply()
 
     var customPlaybackOnMatch: Boolean
         get() = prefs.getBoolean(KEY_CUSTOM_ON_MATCH, true)
